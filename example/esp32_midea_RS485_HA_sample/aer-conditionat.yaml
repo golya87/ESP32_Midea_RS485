@@ -4,7 +4,7 @@
     - bunicutz_AC.h
   
   libraries:
-    - "https://github.com/Bunicutz/ESP32_Midea_RS485.git"
+    - "https://github.com/golya87/ESP32_Midea_RS485.git"
 
 #..............................................
 
@@ -22,19 +22,19 @@ sensor:
     };
   sensors:
   - name: "AC In Air Temp"    
-    unit_of_measurement: "캜"
+    unit_of_measurement: "째C"
     accuracy_decimals: 0
 
   - name: "AC Coil A Temp"    
-    unit_of_measurement: "캜"
+    unit_of_measurement: "째C"
     accuracy_decimals: 0
 
   - name: "AC Coil B Temp"    
-    unit_of_measurement: "캜"
+    unit_of_measurement: "째C"
     accuracy_decimals: 0
 
   - name: "AC Outdoor Temp"    
-    unit_of_measurement: "캜"
+    unit_of_measurement: "째C"
     accuracy_decimals: 0
 
   - name: "AC Com State"    
