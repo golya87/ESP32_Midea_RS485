@@ -20,22 +20,24 @@ sensor:
             my_ACSensors->ACT3Temp,
             my_ACSensors->ACNotResponding
     };
-  sensors:
+    sensors:
   - name: "AC In Air Temp"    
     unit_of_measurement: "°C"
     accuracy_decimals: 0
 
-  - name: "AC Coil A Temp"    
+  - name: "Water Inlet Temp"    
     unit_of_measurement: "°C"
     accuracy_decimals: 0
 
-  - name: "AC Coil B Temp"    
+  - name: "AC Coil B Temp"
     unit_of_measurement: "°C"
     accuracy_decimals: 0
+    internal: true
 
-  - name: "AC Outdoor Temp"    
+  - name: "AC Outdoor Temp"
     unit_of_measurement: "°C"
     accuracy_decimals: 0
+    internal: true
 
   - name: "AC Com State"    
     unit_of_measurement: "bool"
