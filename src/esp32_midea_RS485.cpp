@@ -86,6 +86,80 @@
     #define TRANSMIT_CRC 16
     #define RECEIVE_CRC  32
 
+    #define RESPONSE_FRAME_LEN 32
+    #define RESPONSE_FRAME_LEN_NO_PREAMBLE 31
+    #define RESPONSE_BUFFER_LEN 40
+    
+    static uint8_t normalize_response_frame(uint8_t *buffer, uint8_t len)
+    {
+        uint8_t start;
+        uint8_t index;
+    
+        if (len >= RESPONSE_FRAME_LEN)
+        {
+            for (start = 0; start <= len - RESPONSE_FRAME_LEN; start++)
+            {
+                if ((buffer[start] == PREAMBLE) &&
+                    (buffer[start + 2] == TO_MASTER) &&
+                    (buffer[start + RESPONSE_FRAME_LEN - 1] == PROLOGUE))
+                {
+                    if (start != 0)
+                    {
+                        for (index = 0; index < RESPONSE_FRAME_LEN; index++)
+                        {
+                            buffer[index] = buffer[start + index];
+                        }
+                    }
+                    return RESPONSE_FRAME_LEN;
+                }
+            }
+        }
+    
+        if (len >= RESPONSE_FRAME_LEN_NO_PREAMBLE)
+        {
+            for (start = 0; start <= len - RESPONSE_FRAME_LEN_NO_PREAMBLE; start++)
+            {
+                if ((buffer[start + 1] == TO_MASTER) &&
+                    (buffer[start + RESPONSE_FRAME_LEN_NO_PREAMBLE - 1] == PROLOGUE))
+                {
+                    for (index = 0; index < RESPONSE_FRAME_LEN_NO_PREAMBLE; index++)
+                    {
+                        buffer[RESPONSE_FRAME_LEN - 1 - index] =
+                            buffer[start + RESPONSE_FRAME_LEN_NO_PREAMBLE - 1 - index];
+                    }
+                    buffer[0] = PREAMBLE;
+                    return RESPONSE_FRAME_LEN;
+                }
+            }
+        }
+    
+        return len;
+    }
+    
+    static uint8_t read_response_frame(HardwareSerial *serial_bus, uint8_t *buffer)
+    {
+        uint8_t available_bytes;
+        uint8_t index;
+    
+        available_bytes = serial_bus->available();
+        if (available_bytes > RESPONSE_BUFFER_LEN)
+        {
+            available_bytes = RESPONSE_BUFFER_LEN;
+        }
+    
+        for (index = 0; index < available_bytes; index++)
+        {
+            buffer[index] = serial_bus->read();
+        }
+    
+        for (index = available_bytes; index < RESPONSE_BUFFER_LEN; index++)
+        {
+            buffer[index] = 0;
+        }
+    
+        return normalize_response_frame(buffer, available_bytes);
+    }
+
 ESP32_Midea_RS485Class::ESP32_Midea_RS485Class(HardwareSerial *hwSerial, uint8_t ro_pin, uint8_t di_pin, uint8_t re_de_pin, uint8_t master_id, uint8_t slave_id, uint8_t command_time, uint8_t response_timeout):
 ComControlPin(re_de_pin),
 SerialBus(hwSerial),
@@ -198,7 +272,7 @@ uint8_t ESP32_Midea_RS485Class::SetVent(MideaACOpFeatureStateType value)
 
 void ESP32_Midea_RS485Class::Update()
 {
-    uint8_t i,resp;
+    uint8_t resp;
     
     if(0==UpdateNextCycle)
     {
@@ -264,44 +338,47 @@ void ESP32_Midea_RS485Class::Update()
       
       UpdateNextCycle=0;
     }  
+    while (SerialBus->available() > 0)
+    {
+        SerialBus->read();
+    }
     
     digitalWrite(ComControlPin, RS485_TX_PIN_VALUE);
-    SerialBus->write(SentData,16);
-    delay(Master_Send_Time);
+    SerialBus->write(SentData, 16);
+    SerialBus->flush();
+    delay(2);
     digitalWrite(ComControlPin, RS485_RX_PIN_VALUE);
-    delay(Slave_Resp_Time);
+    
+    uint32_t wait_start = millis();
+    while ((millis() - wait_start) < 90)
+    {
+        if (SerialBus->available() >= RESPONSE_FRAME_LEN_NO_PREAMBLE)
+        {
+            break;
+        }
+        delay(1);
+    }
     
     State.ACNotResponding = 0;
+    resp = read_response_frame(SerialBus, ReceivedData);
     
-    resp = SerialBus->available();
-
-    if(resp==32)
+    if (resp == RESPONSE_FRAME_LEN)
     {
-        for(i=0;i<32;i++)
+        if (1 == ParseResponse())
         {
-            ReceivedData[i]=SerialBus->read();
+            State.ACNotResponding = 1;
         }
-      if(1 == ParseResponse())
-      {
-        State.ACNotResponding = 1;
-      }
-    }else if(resp>0)
-        {
-            for(i=0;i<resp;i++)
-            {
-                ReceivedData[i]=SerialBus->read();
-            }
-            for(i=resp;i<40;i++)
-            {
-                ReceivedData[i]=0;
-            }
-            State.ACNotResponding = 2;
-        } 
+    }
+    else if (resp > 0)
+    {
+        State.ACNotResponding = 2;
+    }
+    
 }
 
 void ESP32_Midea_RS485Class::Lock()
 {
-    uint8_t i,resp;
+    uint8_t resp;
     
       //construct lock command
       SentData[0] =  PREAMBLE;
@@ -321,42 +398,46 @@ void ESP32_Midea_RS485Class::Lock()
       SentData[15] =  PROLOGUE;
       SentData[14] = CalculateCRC(TRANSMIT_CRC);
     
+    while (SerialBus->available() > 0)
+    {
+        SerialBus->read();
+    }
+    
     digitalWrite(ComControlPin, RS485_TX_PIN_VALUE);
-    SerialBus->write(SentData,16);
-    delay(Master_Send_Time);
+    SerialBus->write(SentData, 16);
+    SerialBus->flush();
+    delay(2);
     digitalWrite(ComControlPin, RS485_RX_PIN_VALUE);
-    delay(Slave_Resp_Time);
+    
+    uint32_t wait_start = millis();
+    while ((millis() - wait_start) < 90)
+    {
+        if (SerialBus->available() >= RESPONSE_FRAME_LEN_NO_PREAMBLE)
+        {
+            break;
+        }
+        delay(1);
+    }
     
     State.ACNotResponding = 0;
+    resp = read_response_frame(SerialBus, ReceivedData);
     
-    resp = SerialBus->available();
-
-    if(resp==32)
+    if (resp == RESPONSE_FRAME_LEN)
     {
-        for(i=0;i<32;i++)
+        if (1 == ParseResponse())
         {
-            ReceivedData[i]=SerialBus->read();
+            State.ACNotResponding = 1;
         }
-      if(1 == ParseResponse())
-      {
-        State.ACNotResponding = 1;
-      }
-    }else if(resp>0)
-        {
-            for(i=0;i<resp;i++)
-            {
-                ReceivedData[i]=SerialBus->read();
-            }
-            for(i=resp;i<40;i++)
-            {
-                ReceivedData[i]=0;
-            }
-            State.ACNotResponding = 2;
-        } 
+    }
+    else if (resp > 0)
+    {
+        State.ACNotResponding = 2;
+    }
+
 }
 void ESP32_Midea_RS485Class::Unlock()
 {
-    uint8_t i,resp;
+    uint8_t resp;
     
       //construct unlock command
       SentData[0] =  PREAMBLE;
@@ -376,38 +457,41 @@ void ESP32_Midea_RS485Class::Unlock()
       SentData[15] =  PROLOGUE;
       SentData[14] = CalculateCRC(TRANSMIT_CRC);
     
+    while (SerialBus->available() > 0)
+    {
+        SerialBus->read();
+    }
+    
     digitalWrite(ComControlPin, RS485_TX_PIN_VALUE);
-    SerialBus->write(SentData,16);
-    delay(Master_Send_Time);
+    SerialBus->write(SentData, 16);
+    SerialBus->flush();
+    delay(2);
     digitalWrite(ComControlPin, RS485_RX_PIN_VALUE);
-    delay(Slave_Resp_Time);
+    
+    uint32_t wait_start = millis();
+    while ((millis() - wait_start) < 90)
+    {
+        if (SerialBus->available() >= RESPONSE_FRAME_LEN_NO_PREAMBLE)
+        {
+            break;
+        }
+        delay(1);
+    }
     
     State.ACNotResponding = 0;
+    resp = read_response_frame(SerialBus, ReceivedData);
     
-    resp = SerialBus->available();
-
-    if(resp==32)
+    if (resp == RESPONSE_FRAME_LEN)
     {
-        for(i=0;i<32;i++)
+        if (1 == ParseResponse())
         {
-            ReceivedData[i]=SerialBus->read();
+            State.ACNotResponding = 1;
         }
-      if(1 == ParseResponse())
-      {
-        State.ACNotResponding = 1;
-      }
-    }else if(resp>0)
-        {
-            for(i=0;i<resp;i++)
-            {
-                ReceivedData[i]=SerialBus->read();
-            }
-            for(i=resp;i<40;i++)
-            {
-                ReceivedData[i]=0;
-            }
-            State.ACNotResponding = 2;
-        } 
+    }
+    else if (resp > 0)
+    {
+        State.ACNotResponding = 2;
+    }
     
 }
 
@@ -464,22 +548,47 @@ uint8_t ESP32_Midea_RS485Class::ParseResponse()
             default: State.OpMode = MIDEA_AC_OPMODE_UNKOWN;
         }        
 
-        switch(ReceivedData[9]) 
-        {
-            case FAN_MODE_HIGH: State.FanMode = MIDEA_AC_FANMODE_HIGH; break;
-            case FAN_MODE_MEDIUM: State.FanMode = MIDEA_AC_FANMODE_MEDIUM; break;
-            case FAN_MODE_LOW: State.FanMode = MIDEA_AC_FANMODE_LOW; break;
-            default: State.FanMode = MIDEA_AC_FANMODE_UNKNOWN;
-        }
-        if(ReceivedData[9]&FAN_MODE_AUTO)
+        uint8_t fan_raw = ReceivedData[9];
+        
+        // Egyes fan-coil valaszok 0x00-t adnak fan mezoben; ezt Auto-kent kezeljuk.
+        if ((fan_raw & FAN_MODE_AUTO) || (fan_raw == 0x00))
         {
             State.FanMode = MIDEA_AC_FANMODE_AUTO;
         }
+        else if (fan_raw & FAN_MODE_HIGH)
+        {
+            State.FanMode = MIDEA_AC_FANMODE_HIGH;
+        }
+        else if (fan_raw & FAN_MODE_MEDIUM)
+        {
+            State.FanMode = MIDEA_AC_FANMODE_MEDIUM;
+        }
+        else if (fan_raw & FAN_MODE_LOW)
+        {
+            State.FanMode = MIDEA_AC_FANMODE_LOW;
+        }
+        else
+        {
+            State.FanMode = MIDEA_AC_FANMODE_UNKNOWN;
+        }
         State.SetTemp = ReceivedData[0x0A];
-        State.T1Temp = (ReceivedData[0x0B]-0x30)/2;        
-        State.T2ATemp = (ReceivedData[0x0C]-0x30)/2;        
-        State.T2BTemp = (ReceivedData[0x0D]-0x30)/2;        
-        State.T3Temp = (ReceivedData[0x0E]-0x30)/2;
+        State.T1Temp = (ReceivedData[0x0B] - 0x30) / 2;
+        State.T2ATemp = (ReceivedData[0x0C] - 0x30) / 2;
+        
+        int t2b = (ReceivedData[0x0D] - 0x30) / 2;
+        int t3 = (ReceivedData[0x0E] - 0x30) / 2;
+        
+        if ((t2b < 0) || (t2b > 80))
+        {
+        t2b = 0;
+        }
+        if ((t3 < 0) || (t3 > 80))
+        {
+        t3 = 0;
+        }
+        
+        State.T2BTemp = t2b;
+        State.T3Temp = t3;
         State.Current = ReceivedData[0x0F];
         State.Unknown2 = ReceivedData[0x10];         
         State.TimerStart = CalculateGetTime(ReceivedData[0x11]);         
