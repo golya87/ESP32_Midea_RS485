@@ -1,5 +1,5 @@
 #include "esphome.h"
-#include <esp32_midea_RS485.h>
+#include "esp32_midea_RS485.h"
 
 #define DI_PIN 16
 #define RO_PIN 17 
@@ -10,8 +10,8 @@
 #define SERIAL_COM_CONTROL_PIN DE_PIN
 #define SERIAL_COM_MASTER_ID 0
 #define SERIAL_COM_SLAVE_ID 0
-#define SERIAL_COM_MASTER_SEND_TIME 40
-#define SERIAL_COM_SLAVE_TIMEOUT_TIME 100
+#define SERIAL_COM_MASTER_SEND_TIME 2
+#define SERIAL_COM_SLAVE_TIMEOUT_TIME 120
 
 float DesiredTemp=18;
 
@@ -27,7 +27,7 @@ class BunicutzACSensor : public PollingComponent, public Sensor {
   Sensor *ACNotResponding = new Sensor();
   std::string SetMode = "Unknown";
   std::string SetFanMode = "Unknown";
-  uint8_t SetTemp = 18;
+  uint8_t SetTemp = 17;
   bool aux_heat = 0;
   bool echo_sleep = 0;
   bool vent = 0;
